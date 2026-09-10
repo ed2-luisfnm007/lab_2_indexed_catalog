@@ -128,7 +128,7 @@ ReadResult read_record_at(std::istream &input, std::uint64_t offset)
                 std::nullopt,
                 {},
                 {},
-                "Se detecto un offset invalido"};
+                "Se detecto un offset  invalido"};
 
     std::array<std::byte, 10> header;
     if (!read_exact(input, header))
@@ -222,12 +222,66 @@ PrimaryBuildResult build_primary_index(std::istream &input)
     // TODO 2
     // Recorra el archivo con next_offset, ordene por label_id y detecte
     // duplicados.
-    (void)input;
-    return {BuildStatus::ReadError,
+
+    std::uint64_t offset = 0;
+    std::vector<PrimaryEntry> entries;
+
+    auto size = stream_size(input);
+
+    if (!size)
+    {
+        return {BuildStatus::ReadError,
+                {},
+                {},
+                {},
+                "No se pudo determinar el tamanio del archivo"};
+    }
+
+    while (true)
+    {
+        if (offset == size.value())
+            break;
+
+        ReadResult result = read_record_at(input, offset);
+
+        if (result.status != ReadStatus::Ok)
+        {
+            return {BuildStatus::ReadError,
+                    {},
+                    static_cast<std::uint64_t>(offset),
+                    {},
+                    result.detail};
+        }
+
+        auto result_record = result.record.value();
+
+        entries.emplace_back(result_record.label_id, offset);
+
+        offset = result.next_offset;
+    }
+
+    std::sort(entries.begin(),
+              entries.end(),
+              [](const PrimaryEntry &a, const PrimaryEntry &b)
+              { return a.label_id < b.label_id; });
+
+    for (std::size_t i = 1; i < entries.size(); i++)
+    {
+        if (entries[i].label_id == entries[i - 1].label_id)
+        {
+            return {BuildStatus::DuplicateKey,
+                    {},
+                    {},
+                    entries[i].label_id,
+                    "Se detecto una clave repetida"};
+        }
+    }
+
+    return {BuildStatus::Ok,
+            entries,
             {},
-            0,
             {},
-            "TODO: implementar build_primary_index"};
+            "El indice primario se construyo correctamente"};
 }
 
 std::optional<std::uint64_t> find_offset(std::span<const PrimaryEntry> index,
