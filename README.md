@@ -2,12 +2,6 @@
 
 Este proyecto contiene la infraestructura y las pruebas visibles del Laboratorio 2 de Estructura de Datos II.
 
-Consulte la especificación completa en:
-
-```text
-../Lab2_Catalogo_Indexado_Confiable_EstructuraDeDatosII-Q32026.md
-```
-
 ## Trabajo del estudiante
 
 Modifique `src/catalog.cpp` y complete:
