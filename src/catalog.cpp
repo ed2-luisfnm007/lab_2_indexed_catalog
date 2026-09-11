@@ -290,8 +290,43 @@ std::optional<std::uint64_t> find_offset(std::span<const PrimaryEntry> index,
     // TODO 3
     // Implemente búsqueda binaria manual. No use std::lower_bound,
     // std::binary_search ni std::equal_range.
-    (void)index;
-    (void)label_id;
+
+    if (index.empty())
+        return std::nullopt;
+
+    if (label_id == index[0].label_id)
+        return index[0].offset;
+
+    if (label_id == index[index.size() - 1].label_id)
+        return index[index.size() - 1].offset;
+
+    int left = 0;
+    int right = index.size() - 1;
+    int middle = right / 2;
+
+    while (left < right)
+    {
+        std::size_t middle_idx = static_cast<std::size_t>(middle);
+        if (index[middle_idx].label_id == label_id)
+        {
+            return index[middle_idx].offset;
+        }
+
+        if (index[middle_idx].label_id < label_id)
+        {
+            left = middle + 1;
+            middle = left + ((right - left) / 2);
+            continue;
+        }
+
+        if (index[middle_idx].label_id > label_id)
+        {
+            right = middle - 1;
+            middle = left + ((right - left) / 2);
+            continue;
+        }
+    }
+
     return std::nullopt;
 }
 
