@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <utility>
-
 namespace lab2
 {
 
@@ -353,16 +352,70 @@ ReadResult find_record(std::istream &input,
     }
     return result;
 }
+using ComposerLabelPair = std::pair<std::string, std::string>;
 
 ComposerBuildResult build_composer_index(std::istream &input,
                                          std::span<const PrimaryEntry> primary)
 {
-    // TODO 4
-    // Recomendación: reúna pares (composer, label_id), ordénelos y agrúpelos.
-    // No almacene offsets en este índice secundario.
-    (void)input;
-    (void)primary;
-    return {};
+    std::vector<SkippedRecord> skipped;
+    std::vector<ComposerLabelPair> composers_labels;
+    for (const PrimaryEntry &prim : primary)
+    {
+        ReadResult result = read_record_at(input, prim.offset);
+        if (!result.ok())
+        {
+            skipped.emplace_back(prim.label_id, prim.offset, result.status);
+            continue;
+        }
+
+        Record rec = result.record.value();
+
+        if (rec.label_id != prim.label_id)
+        {
+            skipped.emplace_back(
+                    prim.label_id, prim.offset, ReadStatus::IndexKeyMismatch);
+            continue;
+        }
+
+        composers_labels.emplace_back(rec.composer, rec.label_id);
+    }
+    std::sort(composers_labels.begin(), composers_labels.end());
+
+    ComposerIndex composer_index;
+    std::vector<std::string> labels_id;
+    std::string current_composer;
+    if (!composers_labels.empty())
+    {
+        current_composer = composers_labels[0].first;
+        labels_id.emplace_back(composers_labels[0].second);
+    }
+
+    for (std::size_t i = 1; i < composers_labels.size(); i++)
+    {
+        if (composers_labels[i].first != current_composer)
+        {
+            composer_index.emplace_back(current_composer, labels_id);
+            current_composer = composers_labels[i].first;
+            labels_id.clear();
+            labels_id.emplace_back(composers_labels[i].second);
+            continue;
+        }
+
+        if (composers_labels[i].second == composers_labels[i - 1].second)
+            continue;
+
+        labels_id.emplace_back(composers_labels[i].second);
+    }
+
+    if (!composers_labels.empty())
+        composer_index.emplace_back(current_composer, labels_id);
+
+    std::sort(composer_index.begin(),
+              composer_index.end(),
+              [](const ComposerEntry &a, const ComposerEntry &b)
+              { return a.composer < b.composer; });
+
+    return {composer_index, skipped};
 }
 
 std::span<const std::string> find_by_composer(const ComposerIndex &index,
