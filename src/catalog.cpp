@@ -5,6 +5,7 @@
 #include "crc32.hpp"
 
 #include <algorithm>
+#include <unordered_set>
 #include <utility>
 namespace lab2
 {
@@ -303,7 +304,7 @@ std::optional<std::uint64_t> find_offset(std::span<const PrimaryEntry> index,
     int right = index.size() - 1;
     int middle = right / 2;
 
-    while (left < right)
+    while (left <= right)
     {
         std::size_t middle_idx = static_cast<std::size_t>(middle);
         if (index[middle_idx].label_id == label_id)
@@ -421,10 +422,35 @@ ComposerBuildResult build_composer_index(std::istream &input,
 std::span<const std::string> find_by_composer(const ComposerIndex &index,
                                               std::string_view composer)
 {
-    // TODO 5
-    // El ComposerIndex está ordenado por compositor: use búsqueda binaria.
-    (void)index;
-    (void)composer;
+    if (index.empty())
+        return {};
+
+    int left = 0;
+    int right = index.size() - 1;
+    int middle = right / 2;
+
+    while (left <= right)
+    {
+        std::size_t middle_idx = static_cast<std::size_t>(middle);
+        if (index[middle_idx].composer == composer)
+        {
+            return index[middle_idx].label_ids;
+        }
+
+        if (index[middle_idx].composer < composer)
+        {
+            left = middle + 1;
+            middle = left + ((right - left) / 2);
+            continue;
+        }
+
+        if (index[middle_idx].composer > composer)
+        {
+            right = middle - 1;
+            middle = left + ((right - left) / 2);
+            continue;
+        }
+    }
     return {};
 }
 
@@ -434,9 +460,76 @@ VerificationReport verify_primary_index(std::istream &input,
     // TODO 6
     // Haga primero las verificaciones estructurales del índice y luego valide
     // cada referencia con read_record_at. No imprima desde esta función.
-    (void)input;
-    (void)index;
-    return {};
+
+    std::vector<VerificationIssue> issues;
+
+    std::size_t entries_checked = 0;
+    std::size_t readable_matching_entries = 0;
+
+    std::unordered_set<std::string> seen_keys;
+    std::unordered_set<std::uint64_t> seen_offsets;
+
+    for (std::size_t i = 0; i < index.size(); i++)
+    {
+        if ((i > 0) && (index[i].label_id < index[i - 1].label_id))
+        {
+            issues.emplace_back(
+                    VerificationIssueType::UnsortedIndex,
+                    index[i].label_id,
+                    index[i].offset,
+                    ReadStatus::Ok,
+                    "El indice no esta ordeando de forma ascendente.");
+        }
+
+        if (!seen_keys.insert(index[i].label_id).second)
+        {
+            issues.emplace_back(
+                    VerificationIssueType::DuplicateKey,
+                    index[i].label_id,
+                    index[i].offset,
+                    ReadStatus::Ok,
+                    "Se encontro una llave duplicada en el indice.");
+        }
+
+        if (!seen_offsets.insert(index[i].offset).second)
+        {
+            issues.emplace_back(
+                    VerificationIssueType::DuplicateOffset,
+                    index[i].label_id,
+                    index[i].offset,
+                    ReadStatus::Ok,
+                    "Se encontro un offset duplicado en el indice.");
+        }
+    }
+
+    for (const PrimaryEntry &entry : index)
+    {
+        entries_checked++;
+
+        ReadResult read_result = read_record_at(input, entry.offset);
+
+        if (!read_result.ok())
+        {
+            issues.emplace_back(VerificationIssueType::RecordReadError,
+                                entry.label_id,
+                                entry.offset,
+                                read_result.status,
+                                "No se puedo leer la clave.");
+        }
+        else if (read_result.record->label_id != entry.label_id)
+        {
+            issues.emplace_back(VerificationIssueType::KeyMismatch,
+                                entry.label_id,
+                                entry.offset,
+                                read_result.status,
+                                "La clave leida no coincide con la esperada.");
+        }
+        else
+        {
+            readable_matching_entries++;
+        }
+    }
+    return {entries_checked, readable_matching_entries, issues};
 }
 
 std::vector<std::string> intersect_sorted(std::span<const std::string> left,
