@@ -1,20 +1,35 @@
-# Starter — Laboratorio 2: catálogo indexado y confiable
+# Laboratorio 2 — Catálogo musical indexado y confiable
 
-Este proyecto contiene la infraestructura y las pruebas visibles del Laboratorio 2 de Estructura de Datos II.
+Implementación del Laboratorio 2 de Estructura de Datos II: lectura segura de registros binarios por offset, índice primario ordenado, índice secundario invertido por compositor y verificación de consistencia entre el índice y el archivo de datos.
 
-## Trabajo del estudiante
+## Estudiante
+Nombre: Luis Fernando Noriega Mejia
 
-Modifique `src/catalog.cpp` y complete:
+## Complejidad de las operaciones principales
 
-1. `read_record_at`
-2. `build_primary_index`
-3. `find_offset`
-4. `build_composer_index`
-5. `find_by_composer`
-6. `verify_primary_index`
-7. Opcional: `intersect_sorted`
+- **Construir el índice primario** (`build_primary_index`): O(n log n). Recorrer el archivo es O(n), pero ordenar las entradas por `label_id` es O(n log n) y domina el costo total.
+- **Búsqueda primaria** (`find_offset`): O(log n). Búsqueda binaria manual sobre el arreglo ya ordenado.
+- **Construir el índice secundario** (`build_composer_index`): O(m log m), donde m es el número de entradas primarias. Se ordenan los pares (compositor, label_id) una sola vez.
+- **Búsqueda secundaria** (`find_by_composer`): O(log k), donde k es el número de compositores distintos. También es búsqueda binaria manual.
+- **Verificar consistencia** (`verify_primary_index`): O(n) en promedio. Recorre el índice una vez usando `unordered_set` para detectar claves y offsets duplicados, y hace una lectura por cada entrada.
 
-Puede crear funciones auxiliares privadas dentro de ese archivo. Agregue sus pruebas en `tests/student_tests.cpp` y actualice este README. No modifique las interfaces públicas, `tests/tests.cpp`, `CMakeLists.txt` ni los demás archivos provistos.
+## Diferencia entre integridad física y consistencia lógica
+
+### Integridad física
+
+Pregunta si los bytes leídos son los mismos que se escribieron. Ejemplos: header incompleto, payload truncado, CRC que no coincide con el payload.
+
+### Consistencia lógica
+
+Pregunta si las estructuras y referencias tienen sentido para el sistema, aunque los bytes estén físicamente intactos. Ejemplos: magic o versión incorrectos, longitud fuera de rango, payload mal formado, clave del índice distinta a la del registro, claves primarias duplicadas, índice desordenado, dos claves apuntando al mismo offset.
+
+Un registro puede tener CRC válido y aun así estar asociado a la clave equivocada: el CRC solo prueba integridad física, no consistencia lógica.
+
+## Descripción de las pruebas adicionales en `tests/student_tests.cpp`
+
+- **ST1**: `build_primary_index` con un archivo vacío. Verifica que devuelva `BuildStatus::Ok` con un índice vacío.
+- **ST2**: `read_record_at` con un `payload_length` inválido (el máximo valor posible de `uint32_t`) y sin ningún byte de payload después del header. Verifica que devuelva `InvalidLength` sin intentar leer ni reservar memoria para ese payload.
+- **ST3**: `verify_primary_index` con un índice desordenado que además tiene una clave duplicada en posiciones no adyacentes. Verifica que el reporte contenga tanto `UnsortedIndex` como `DuplicateKey`.
 
 ## Compilar
 
@@ -41,7 +56,7 @@ Para ejecutar un ejercicio específico:
 ./build/catalog_tests --test-case="E04*"
 ```
 
-El starter compila desde el inicio, pero las pruebas fallan hasta completar los TODO.
+Los 6 TODO obligatorios están completos. Los 10 tests provistos por el profesor (`E01`–`E10`) y las 3 pruebas propias (`ST1`–`ST3`) pasan. El bono opcional `intersect_sorted` no fue implementado.
 
 ## Generar datos de ejemplo
 
@@ -77,13 +92,3 @@ El starter compila desde el inicio, pero las pruebas fallan hasta completar los 
 - `src/main.cpp`: interfaz de línea de comandos.
 - `tools/`: generación y corrupción controlada de datos.
 
-## Antes de entregar
-
-Actualice este README con:
-
-- Nombre del estudiante.
-- Complejidad de las operaciones principales.
-- Diferencia entre integridad física y consistencia lógica.
-- Descripción de las pruebas adicionales realizadas en `tests/student_tests.cpp`.
-
-No entregue `build/`, ejecutables ni archivos generados `.bin`, `.idx` o `.corrupt`.
