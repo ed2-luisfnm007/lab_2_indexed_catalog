@@ -10,28 +10,6 @@
 namespace lab2
 {
 
-bool is_valid_magic(const std::span<std::byte> &header)
-{
-    if (header.size() < 4)
-    {
-        return false;
-    }
-
-    if (static_cast<char>(header[0]) != 'M')
-        return false;
-
-    if (static_cast<char>(header[1]) != 'U')
-        return false;
-
-    if (static_cast<char>(header[2]) != 'S')
-        return false;
-
-    if (static_cast<char>(header[3]) != '2')
-        return false;
-
-    return true;
-}
-
 const char *to_string(ReadStatus status)
 {
     switch (status)
@@ -109,106 +87,93 @@ ReadResult read_record_at(std::istream &input, std::uint64_t offset)
 
     auto size = stream_size(input);
 
+    auto error = [](const ReadStatus &status, const std::string &detail)
+    { return ReadResult{status, std::nullopt, {}, {}, detail}; };
+
     if (!size)
-        return {ReadStatus::InvalidOffset,
-                std::nullopt,
-                {},
-                {},
-                "Se detecto un offset invalido"};
+    {
+        return error(ReadStatus::InvalidOffset,
+                     "Se detecto un offset invalido");
+    }
 
     if (offset >= size.value())
-        return {ReadStatus::InvalidOffset,
-                std::nullopt,
-                {},
-                {},
-                "Se detecto un offset invalido"};
+    {
+        return error(ReadStatus::InvalidOffset,
+                     "Se detecto un offset invalido");
+    }
 
     if (!seek_absolute(input, offset))
-        return {ReadStatus::InvalidOffset,
-                std::nullopt,
-                {},
-                {},
-                "Se detecto un offset  invalido"};
-
-    std::array<std::byte, 10> header;
-    if (!read_exact(input, header))
     {
-        return {ReadStatus::TruncatedHeader,
-                std::nullopt,
-                {},
-                {},
-                "Se detecto un header incompleto"};
+        return error(ReadStatus::InvalidOffset,
+                     "Se detecto un offset invalido");
     }
 
-    if (!is_valid_magic(header))
-        return {ReadStatus::BadMagic,
-                std::nullopt,
-                {},
-                {},
-                "Se detecto un magic incorrecto"};
-
-    auto version_b1 = static_cast<std::uint16_t>(header[4]);
-    auto version_b2 = static_cast<std::uint16_t>(header[5]);
-
-    auto version = (version_b2 << 8) | (version_b1);
-
-    if (version != 1)
+    std::uint32_t magic;
+    if (!read_u32_le(input, magic))
     {
-        return {ReadStatus::UnsupportedVersion,
-                std::nullopt,
-                {},
-                {},
-                "Se detecto una version sin soporte"};
+        return error(ReadStatus::TruncatedHeader,
+                     "Se detecto un header incompleto");
     }
 
-    auto length_b1 = static_cast<std::uint32_t>(header[6]);
-    auto length_b2 = static_cast<std::uint32_t>(header[7]);
-    auto length_b3 = static_cast<std::uint32_t>(header[8]);
-    auto length_b4 = static_cast<std::uint32_t>(header[9]);
+    if (magic != RECORD_MAGIC)
+    {
+        return error(ReadStatus::BadMagic, "Se detecto un magic invalido");
+    }
 
-    auto length = (length_b4 << 24) | (length_b3 << 16) | (length_b2 << 8) |
-                  (length_b1);
+    std::uint16_t version = 0;
+    if (!read_u16_le(input, version))
+    {
+        return error(ReadStatus::TruncatedHeader,
+                     "Se detecto un header incompleto");
+    }
+
+    if (version != RECORD_VERSION)
+    {
+        return error(ReadStatus::UnsupportedVersion,
+                     "Se detecto una version sin soporte");
+    }
+
+    std::uint32_t length = 0;
+    if (!read_u32_le(input, length))
+    {
+        return error(ReadStatus::TruncatedHeader,
+                     "Se detecto un header incompleto");
+    }
 
     if (length > MAX_PAYLOAD_SIZE || length == 0)
-        return {ReadStatus::InvalidLength,
-                std::nullopt,
-                {},
-                {},
-                "se detecto una longitud invalida"};
+    {
+        return error(ReadStatus::InvalidLength,
+                     "Se detecto una longitud invalida.");
+    }
 
     std::vector<std::byte> payload(length);
     if (!read_exact(input, payload))
-        return {ReadStatus::TruncatedPayload,
-                std::nullopt,
-                {},
-                {},
-                "La longitud leida del payload no coincide con la real"};
+    {
+        return error(ReadStatus::TruncatedPayload,
+                     "La longitud leida del payload no coincide con la real");
+    }
 
     std::uint32_t crc;
     if (!read_u32_le(input, crc))
-        return {ReadStatus::MissingChecksum,
-                std::nullopt,
-                {},
-                {},
-                "CRC no encontrado"};
+    {
+        return error(ReadStatus::MissingChecksum, "CRC no encontrado");
+    }
 
     if (crc != crc32(payload))
-        return {ReadStatus::ChecksumMismatch,
-                std::nullopt,
-                {},
-                {},
-                "El CRC leido no coincide con el calculado"};
+    {
+        return error(ReadStatus::ChecksumMismatch,
+                     "El CRC calculado no coincide con el esperado");
+    }
 
     auto decoded_payload = decode_payload(payload);
 
     if (!decoded_payload.record.has_value())
-        return {ReadStatus::MalformedPayload,
-                std::nullopt,
-                {},
-                {},
-                decoded_payload.detail};
+    {
+        return error(ReadStatus::MalformedPayload, decoded_payload.detail);
+    }
 
-    auto next_offset = offset + 10 + length + 4;
+    auto next_offset =
+            offset + RECORD_HEADER_SIZE + length + RECORD_CHECKSUM_SIZE;
 
     return {ReadStatus::Ok,
             decoded_payload.record,
@@ -246,11 +211,7 @@ PrimaryBuildResult build_primary_index(std::istream &input)
 
         if (result.status != ReadStatus::Ok)
         {
-            return {BuildStatus::ReadError,
-                    {},
-                    static_cast<std::uint64_t>(offset),
-                    {},
-                    result.detail};
+            return {BuildStatus::ReadError, {}, offset, {}, result.detail};
         }
 
         auto result_record = result.record.value();
@@ -293,12 +254,6 @@ std::optional<std::uint64_t> find_offset(std::span<const PrimaryEntry> index,
 
     if (index.empty())
         return std::nullopt;
-
-    if (label_id == index[0].label_id)
-        return index[0].offset;
-
-    if (label_id == index[index.size() - 1].label_id)
-        return index[index.size() - 1].offset;
 
     int left = 0;
     int right = index.size() - 1;
@@ -478,7 +433,7 @@ VerificationReport verify_primary_index(std::istream &input,
                     index[i].label_id,
                     index[i].offset,
                     ReadStatus::Ok,
-                    "El indice no esta ordeando de forma ascendente.");
+                    "El indice no esta ordenado de forma ascendente.");
         }
 
         if (!seen_keys.insert(index[i].label_id).second)
