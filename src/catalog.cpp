@@ -490,10 +490,34 @@ VerificationReport verify_primary_index(std::istream &input,
 std::vector<std::string> intersect_sorted(std::span<const std::string> left,
                                           std::span<const std::string> right)
 {
-    // TODO BONO: dos punteros, O(n + m), sin duplicados.
-    (void)left;
-    (void)right;
-    return {};
+    if (left.empty() || right.empty())
+        return {};
+    std::size_t left_ptr = 0;
+    std::size_t right_ptr = 0;
+
+    std::vector<std::string> merge;
+
+    while (left_ptr < left.size() && right_ptr < right.size())
+    {
+        if (left[left_ptr] == right[right_ptr])
+        {
+            merge.push_back(left[left_ptr]);
+            left_ptr++;
+            right_ptr++;
+            continue;
+        }
+
+        if (left[left_ptr] < right[right_ptr])
+        {
+            left_ptr++;
+            continue;
+        }
+        else
+        {
+            right_ptr++;
+        }
+    }
+    return merge;
 }
 
 } // namespace lab2
